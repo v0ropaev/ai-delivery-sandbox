@@ -36,8 +36,3 @@ def last_payment_date(conn, invoice_id: int) -> str:
     rows = payments_for_invoice(conn, invoice_id)
     return rows[-1]["paid_at"]
 
-
-def paid_invoices_for_day(conn, day: date) -> set[int]:
-    """Счета, по которым были оплаты в указанный день (для реестра оплат)."""
-    rows = query(conn, "SELECT DISTINCT invoice_id FROM payments WHERE date(paid_at) = ?", (day.isoformat(),))
-    return {r["invoice_id"] for r in rows}

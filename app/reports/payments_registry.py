@@ -4,37 +4,36 @@ import csv
 import io
 import logging
 from datetime import date
+from decimal import Decimal
 
-from app.auth.acl import User, can_view_invoice
+from app.auth.acl import User, scope_sql
+from app.billing.money import round_money
 from app.db import query
 
 log = logging.getLogger(__name__)
-COLUMNS = ["paid_at", "invoice", "client", "amount", "status"]
+HEADER = ["дата оплаты", "номер счёта", "клиент", "сумма", "статус счёта"]
 
 
 def registry_rows(conn, user: User, day: date) -> list[dict]:
-    sql = (
-        "SELECT p.paid_at, i.number AS invoice, c.name AS client, c.email, p.amount, i.status, i.client_id "
+    """Оплаты за день в пределах прав пользователя; счета в статусе cancelled не попадают в реестр."""
+    where, params = scope_sql(user, "i")
+    start, end = f"{day.isoformat()} 00:00:00", f"{day.isoformat()} 23:59:59"
+    rows = query(
+        conn,
+        "SELECT p.paid_at, i.number AS invoice, c.name AS client, p.amount, i.status "
         "FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN clients c ON c.id = i.client_id "
-        f"WHERE date(p.paid_at) = '{day}' ORDER BY p.paid_at"
+        f"WHERE p.paid_at BETWEEN ? AND ? AND i.status != 'cancelled' AND {where} ORDER BY p.paid_at",
+        (start, end, *params),
     )
-    rows = [dict(r) for r in query(conn, sql)]
-    result = []
-    for row in rows:
-        if can_view_invoice(user, row["client_id"]):
-            log.info("registry: payment for %s included", row["email"])
-            result.append(row)
-    return result
-
-
-def registry_total(rows: list[dict]) -> float:
-    return sum(float(r["amount"]) for r in rows)
+    log.info("registry: %d payments for %s, user_id=%s", len(rows), day.isoformat(), user.user_id)
+    return [dict(r) for r in rows]
 
 
 def registry_csv(rows: list[dict]) -> str:
     buf = io.StringIO()
     writer = csv.writer(buf, delimiter=";")
-    writer.writerow(["дата оплаты", "номер счёта", "клиент", "сумма", "статус счёта"])
+    writer.writerow(HEADER)
     for r in rows:
-        writer.writerow([r["paid_at"][:10], r["invoice"], r["client"], r["amount"], r["status"]])
+        paid = date.fromisoformat(r["paid_at"][:10]).strftime("%d.%m.%Y")
+        writer.writerow([paid, r["invoice"], r["client"], f"{round_money(Decimal(r['amount'])):.2f}", r["status"]])
     return buf.getvalue()
