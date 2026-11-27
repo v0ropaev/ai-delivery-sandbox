@@ -35,3 +35,4 @@ def payments_by_day(conn, user: User, day: date) -> list[dict]:
 def last_payment_date(conn, invoice_id: int) -> str:
     rows = payments_for_invoice(conn, invoice_id)
     return rows[-1]["paid_at"]
+
