@@ -3,25 +3,30 @@
 import csv
 import io
 from datetime import date
+from decimal import Decimal
 
-from app.auth.acl import User, can_view_invoice
+from app.auth.acl import User, scope_sql
+from app.billing.money import round_money
 from app.db import query
 
 HEADER = ["номер счёта", "дата", "сумма", "статус", "остаток к оплате"]
 
 
 def client_invoices(conn, user: User, client_id: int, date_from: date, date_to: date) -> list[dict]:
+    """Счета клиента за период в пределах прав пользователя: права проверяются в запросе (pre-retrieval)."""
+    where, params = scope_sql(user, "i")
     rows = query(
         conn,
-        "SELECT i.id, i.number, i.issued_at, i.total, i.status, i.client_id FROM invoices i "
-        f"WHERE i.client_id = {client_id} AND date(i.issued_at) BETWEEN '{date_from}' AND '{date_to}' ORDER BY i.issued_at",
+        "SELECT i.id, i.number, i.issued_at, i.total, i.status FROM invoices i "
+        f"WHERE i.client_id = ? AND date(i.issued_at) BETWEEN ? AND ? AND {where} ORDER BY i.issued_at",
+        (client_id, date_from.isoformat(), date_to.isoformat(), *params),
     )
-    return [dict(r) for r in rows if can_view_invoice(user, r["client_id"])]
+    return [dict(r) for r in rows]
 
 
-def remainder(conn, invoice: dict) -> float:
+def remainder(conn, invoice: dict) -> Decimal:
     paid = query(conn, "SELECT amount FROM payments WHERE invoice_id = ?", (invoice["id"],))
-    return float(invoice["total"]) - sum(float(p["amount"]) for p in paid)
+    return round_money(Decimal(invoice["total"]) - sum((Decimal(p["amount"]) for p in paid), Decimal("0")))
 
 
 def invoices_csv(conn, invoices: list[dict]) -> str:
@@ -30,5 +35,6 @@ def invoices_csv(conn, invoices: list[dict]) -> str:
     writer.writerow(HEADER)
     for inv in invoices:
         issued = date.fromisoformat(inv["issued_at"][:10]).strftime("%d.%m.%Y")
-        writer.writerow([inv["number"], issued, inv["total"], inv["status"], round(remainder(conn, inv), 2)])
+        total = round_money(Decimal(inv["total"]))
+        writer.writerow([inv["number"], issued, f"{total:.2f}", inv["status"], f"{remainder(conn, inv):.2f}"])
     return buf.getvalue()
