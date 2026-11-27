@@ -45,3 +45,11 @@ def test_registry_csv_format():
 def test_registry_empty_day():
     assert registry_rows(make_db(), User(9, "accountant"), date(2026, 1, 1)) == []
     assert registry_csv([]).strip() == "дата оплаты;номер счёта;клиент;сумма;статус счёта"
+
+
+def test_export_registry_file():
+    from app.reports.payments_registry import export_registry
+
+    name, data = export_registry(make_db(), User(9, "accountant"), date(2026, 11, 5))
+    assert name == "payments_2026-11-05.csv"
+    assert data.decode("utf-8-sig").splitlines()[1] == "05.11.2026;INV-2026-115;ООО Ромашка;12000.00;paid"

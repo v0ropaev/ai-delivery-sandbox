@@ -37,3 +37,9 @@ def registry_csv(rows: list[dict]) -> str:
         paid = date.fromisoformat(r["paid_at"][:10]).strftime("%d.%m.%Y")
         writer.writerow([paid, r["invoice"], r["client"], f"{round_money(Decimal(r['amount'])):.2f}", r["status"]])
     return buf.getvalue()
+
+
+def export_registry(conn, user: User, day: date) -> tuple[str, bytes]:
+    """Выгрузка реестра пользователем: имя файла и содержимое CSV (UTF-8 с BOM, чтобы Excel читал кириллицу)."""
+    content = registry_csv(registry_rows(conn, user, day))
+    return f"payments_{day.isoformat()}.csv", content.encode("utf-8-sig")
